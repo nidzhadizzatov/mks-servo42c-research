@@ -52,7 +52,7 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
     std::cout << "Window: " << config_.window_size
               << ", consecutive: " << config_.consecutive_hits << "\n";
     std::cout << std::string(60, '=') << "\n";
-
+    
     events_.clear();
     stop_requested_ = false;
 
@@ -96,10 +96,15 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
 
         max_error_in_window = std::max(max_error_in_window, abs_err);
 
-        // Логируем (в консоль)
+        // Логируем в консоль
         printf("  error=%+7.3f  avg=%6.3f  status=%s\n",
                err, avg,
                status == 1 ? "BLOCKED" : "free");
+
+        // Логируем в CSV (если логгер подключён)
+        if (logger_) {
+            logger_->log(err, avg, status, 0);
+        }
 
         // Проверка столкновения
         bool collision = (avg > config_.threshold_deg) || (status == 1);
@@ -114,6 +119,13 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
 
         if (hit_count >= config_.consecutive_hits) {
             CollisionEvent ev;
+                        events_.push_back(ev);
+            
+            if (logger_) {
+                logger_->log(err, avg, status, 1);  // collision_flag = 1
+            }
+
+            if (callback_) callback_(ev);
             ev.timestamp = std::chrono::system_clock::now();
             ev.avg_error_deg = avg;
             ev.max_error_deg = max_error_in_window;

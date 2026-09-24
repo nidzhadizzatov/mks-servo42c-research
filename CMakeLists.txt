@@ -9,6 +9,7 @@ add_library(mks_servo42c STATIC
     src/protocol.cpp
     src/servo.cpp
     src/collision_detector.cpp
+    src/logger.cpp
 )
 target_include_directories(mks_servo42c PUBLIC include/)
 
@@ -17,12 +18,14 @@ add_executable(02_read_params         examples/02_read_params.cpp)
 add_executable(03_raw_pulse           examples/03_raw_pulse.cpp)
 add_executable(04_test_motion         examples/04_test_motion.cpp)
 add_executable(05_collision_detection examples/05_collision_detection.cpp)
+add_executable(06_data_logger         examples/06_data_logger.cpp)
 
 target_link_libraries(01_serial_test         mks_servo42c)
 target_link_libraries(02_read_params         mks_servo42c)
 target_link_libraries(03_raw_pulse           mks_servo42c)
 target_link_libraries(04_test_motion         mks_servo42c)
 target_link_libraries(05_collision_detection mks_servo42c)
+target_link_libraries(06_data_logger         mks_servo42c)
 
 if (UNIX AND NOT APPLE)
     target_link_libraries(mks_servo42c PUBLIC pthread)

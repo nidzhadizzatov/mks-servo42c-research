@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mks_servo42c/servo.hpp"
+#include "mks_servo42c/logger.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -46,15 +47,18 @@ public:
 
     // Установить колбэк, вызываемый при каждом столкновении.
     void set_callback(EventCallback cb) { callback_ = std::move(cb); }
-
+    void set_logger(Logger* logger) { logger_ = logger; }
+    
 private:
     Servo& servo_;
     CollisionConfig config_;
     std::vector<CollisionEvent> events_;
     EventCallback callback_;
     bool stop_requested_ = false;
-
+    
     void react_to_collision(const CollisionEvent& event);
+    Logger* logger_ = nullptr;
+    
 };
 
 }  // namespace mks_servo42c
