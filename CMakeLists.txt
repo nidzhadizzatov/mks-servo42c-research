@@ -4,5 +4,26 @@ project(mks_servo42c_research CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Пока пусто — будем наполнять по мере разработки
-message(STATUS "MKS SERVO42C Research project configured")
+add_library(mks_servo42c STATIC
+    src/serial_port.cpp
+    src/protocol.cpp
+    src/servo.cpp
+    src/collision_detector.cpp
+)
+target_include_directories(mks_servo42c PUBLIC include/)
+
+add_executable(01_serial_test         examples/01_serial_test.cpp)
+add_executable(02_read_params         examples/02_read_params.cpp)
+add_executable(03_raw_pulse           examples/03_raw_pulse.cpp)
+add_executable(04_test_motion         examples/04_test_motion.cpp)
+add_executable(05_collision_detection examples/05_collision_detection.cpp)
+
+target_link_libraries(01_serial_test         mks_servo42c)
+target_link_libraries(02_read_params         mks_servo42c)
+target_link_libraries(03_raw_pulse           mks_servo42c)
+target_link_libraries(04_test_motion         mks_servo42c)
+target_link_libraries(05_collision_detection mks_servo42c)
+
+if (UNIX AND NOT APPLE)
+    target_link_libraries(mks_servo42c PUBLIC pthread)
+endif()
