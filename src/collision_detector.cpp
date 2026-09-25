@@ -2,11 +2,30 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <thread>
 
 namespace mks_servo42c {
 
+// ============================================================
+// Адаптивный порог (кусочно-линейная модель)
+// ============================================================
+double CollisionDetector::adaptive_threshold(const CollisionConfig& cfg,
+                                             int speed) {
+    if (speed <= 60) {
+        return cfg.thr_low;
+    } else if (speed <= 90) {
+        return cfg.thr_low + (speed - 60) * cfg.thr_mid_k;
+    } else {
+        double thr_at_90 = cfg.thr_low + 30.0 * cfg.thr_mid_k;  // = 0.39
+        return thr_at_90 + (speed - 90) * cfg.thr_high_k;
+    }
+}
+
+// ============================================================
+// Конструктор / деструктор
+// ============================================================
 CollisionDetector::CollisionDetector(Servo& servo, const CollisionConfig& config)
     : servo_(servo), config_(config) {}
 
@@ -16,18 +35,22 @@ void CollisionDetector::request_stop() {
     stop_requested_ = true;
 }
 
+// ============================================================
+// Реакция на столкновение
+// ============================================================
 void CollisionDetector::react_to_collision(const CollisionEvent& event) {
-    std::cout << "\n COLLISION #" << events_.size() << " detected!\n";
-    std::cout << "   avg_error: " << event.avg_error_deg << " deg\n";
-    std::cout << "   max_error: " << event.max_error_deg << " deg\n";
+    std::cout << "\n*** COLLISION #" << events_.size() << " detected! ***\n";
+    std::cout << "   avg_error:  " << event.avg_error_deg << " deg\n";
+    std::cout << "   max_error:  " << event.max_error_deg << " deg\n";
+    std::cout << "   threshold:  " << event.threshold_used << " deg\n";
 
     // 1. Остановить мотор
-    std::cout << "   → Stopping motor...\n";
+    std::cout << "   -> Stopping motor...\n";
     servo_.stop();
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     // 2. Отъехать назад
-    std::cout << "   → Retreating " << config_.retreat_pulses << " pulses...\n";
+    std::cout << "   -> Retreating " << config_.retreat_pulses << " pulses...\n";
     Direction back_dir = (event.direction == Direction::CW)
                        ? Direction::CCW : Direction::CW;
     servo_.move(config_.retreat_speed, back_dir,
@@ -35,24 +58,40 @@ void CollisionDetector::react_to_collision(const CollisionEvent& event) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 
     // 3. Пауза
-    std::cout << "   → Pause 1 second...\n";
+    std::cout << "   -> Pause 1 second...\n";
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // 4. Продолжить движение
-    std::cout << "   → Resuming motion...\n";
+    std::cout << "   -> Resuming motion...\n";
     servo_.run(event.speed, event.direction);
+
+    // 5. Settle time — игнорировать ошибку, пока мотор стабилизируется
+    std::cout << "   -> Settling (" << config_.settle_time_ms << " ms)...\n";
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(config_.settle_time_ms));
 }
 
+// ============================================================
+// Главный цикл мониторинга
+// ============================================================
 void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
+    // Вычисляем порог для этой скорости
+    double threshold = config_.use_adaptive_threshold
+                     ? adaptive_threshold(config_, speed)
+                     : config_.threshold_deg;
+
     std::cout << "\n" << std::string(60, '=') << "\n";
     std::cout << "MONITORING: speed=" << speed
               << ", dir=" << (dir == Direction::CW ? "CW" : "CCW")
               << ", duration=" << duration_sec << "s\n";
-    std::cout << "Threshold: " << config_.threshold_deg << " deg\n";
+    std::cout << "Threshold mode: "
+              << (config_.use_adaptive_threshold ? "ADAPTIVE" : "FIXED") << "\n";
+    std::cout << "Threshold for speed=" << speed << ": "
+              << threshold << " deg\n";
     std::cout << "Window: " << config_.window_size
               << ", consecutive: " << config_.consecutive_hits << "\n";
     std::cout << std::string(60, '=') << "\n";
-    
+
     events_.clear();
     stop_requested_ = false;
 
@@ -96,21 +135,21 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
 
         max_error_in_window = std::max(max_error_in_window, abs_err);
 
-        // Логируем в консоль
-        printf("  error=%+7.3f  avg=%6.3f  status=%s\n",
-               err, avg,
+        // Логируем (в консоль)
+        printf("  error=%+7.3f  avg=%6.3f  thr=%6.3f  status=%s\n",
+               err, avg, threshold,
                status == 1 ? "BLOCKED" : "free");
 
-        // Логируем в CSV (если логгер подключён)
+        // Логируем в CSV
         if (logger_) {
             logger_->log(err, avg, status, 0);
         }
 
         // Проверка столкновения
-        bool collision = (avg > config_.threshold_deg) || (status == 1);
+        bool collision = (avg > threshold) || (status == 1);
         if (collision) {
             hit_count++;
-            printf(" Resistance! (%d/%d)\n", hit_count,
+            printf("  [WARN] Resistance! (%d/%d)\n", hit_count,
                    config_.consecutive_hits);
         } else {
             hit_count = 0;
@@ -119,29 +158,33 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
 
         if (hit_count >= config_.consecutive_hits) {
             CollisionEvent ev;
-                        events_.push_back(ev);
-            
-            if (logger_) {
-                logger_->log(err, avg, status, 1);  // collision_flag = 1
-            }
-
-            if (callback_) callback_(ev);
             ev.timestamp = std::chrono::system_clock::now();
             ev.avg_error_deg = avg;
             ev.max_error_deg = max_error_in_window;
             ev.shaft_status = status;
             ev.speed = speed;
             ev.direction = dir;
+            ev.threshold_used = threshold;
             events_.push_back(ev);
+
+            if (logger_) {
+                logger_->log(err, avg, status, 1);
+            }
 
             if (callback_) callback_(ev);
 
             react_to_collision(ev);
 
+            // Полный сброс после столкновения
             hit_count = 0;
             window.clear();
             max_error_in_window = 0.0;
-            start = std::chrono::steady_clock::now();  // продлеваем
+            start = std::chrono::steady_clock::now();
+
+            // Пропустить первый опрос после settle (ошибка ещё может быть высокой)
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(config_.poll_interval_ms));
+            continue; // продлеваем
         }
 
         std::this_thread::sleep_for(
