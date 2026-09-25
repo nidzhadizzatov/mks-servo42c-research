@@ -18,7 +18,14 @@ struct CollisionConfig {
     int poll_interval_ms = 50;      // интервал опроса
     int retreat_pulses = 400;       // отъезд при столкновении
     int retreat_speed = 30;         // скорость отъезда
+        // Время игнорирования ошибки после отъезда (мс)
+    // Предотвращает каскадные срабатывания
     int settle_time_ms = 1500;
+
+    // Пропустить первые N замеров после старта
+    // Предотвращает ложные срабатывания при разгоне
+    int startup_skip_samples = 20;
+
     // --- Порог: фиксированный или адаптивный ---
     bool use_adaptive_threshold = true;
 

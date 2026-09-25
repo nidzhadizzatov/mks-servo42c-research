@@ -100,9 +100,14 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     servo_.run(speed, dir);
 
+    // Ждём разгона, чтобы ошибка стабилизировалась
+    std::cout << "   -> Spinning up (waiting for settle)...\n";
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
     std::deque<double> window;
     int hit_count = 0;
     double max_error_in_window = 0.0;
+    int sample_index = 0;   // ← ДОБАВИЛИ: счётчик замеров
 
     auto start = std::chrono::steady_clock::now();
 
@@ -110,6 +115,15 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - start).count();
         if (elapsed >= duration_sec) break;
+
+        // ↓↓ ПРОПУСК ПЕРВЫХ N ЗАМЕРОВ (startup skip) ↓↓
+        sample_index++;
+        if (sample_index <= config_.startup_skip_samples) {
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(config_.poll_interval_ms));
+            continue;
+        }
+        // ↑↑ КОНЕЦ ПРОПУСКА ↑↑
 
         auto error_opt = servo_.read_angle_error();
         auto status_opt = servo_.read_shaft_status();
@@ -175,16 +189,16 @@ void CollisionDetector::monitor(int speed, Direction dir, int duration_sec) {
 
             react_to_collision(ev);
 
-            // Полный сброс после столкновения
             hit_count = 0;
             window.clear();
             max_error_in_window = 0.0;
-            start = std::chrono::steady_clock::now();
+            sample_index = 0;   // ← сбрасываем skip после столкновения
 
-            // Пропустить первый опрос после settle (ошибка ещё может быть высокой)
             std::this_thread::sleep_for(
-                std::chrono::milliseconds(config_.poll_interval_ms));
-            continue; // продлеваем
+                std::chrono::milliseconds(config_.settle_time_ms));
+
+            start = std::chrono::steady_clock::now();
+            continue;
         }
 
         std::this_thread::sleep_for(

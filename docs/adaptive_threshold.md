@@ -16,14 +16,3 @@ threshold(speed) =
 0.15 + (speed-60)×0.008 if 60 < speed ≤ 90
 0.39 + (speed-90)×0.06 if speed > 90
 
-
-### 2. Settle time
-
-После отъезда (retreat) — **игнорировать ошибку** в течение 1.5 секунд.
-Это даёт мотору время стабилизироваться.
-
-```cpp
-// В react_to_collision:
-servo_.run(event.speed, event.direction);
-std::this_thread::sleep_for(
-    std::chrono::milliseconds(config_.settle_time_ms));
